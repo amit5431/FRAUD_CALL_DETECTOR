@@ -1,24 +1,39 @@
 from flask import Flask, render_template, request
 import pandas as pd
+import warnings
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
 
+# Suppress sklearn warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+
 app = Flask(__name__)
 
-# 🔹 Load dataset
-data = pd.read_csv("dataset/fraud_call.file", sep='\t', header=None, names=['label', 'text'], on_bad_lines='skip')
 
-# 🔹 Features & Labels
-X = data["text"]
+texts = []
+labels = []
+
+with open("dataset.txt", "r", encoding="utf-8") as file:
+    for line in file:
+        parts = line.strip().split("\t", 1)  # split label + text by tab
+        if len(parts) == 2:
+            labels.append(parts[0])
+            texts.append(parts[1])
+
+# 🔹 Convert to DataFrame
+data = pd.DataFrame({
+    "text": texts,
+    "label": labels
+})
+
+# 🔹 Vectorization
+vectorizer = TfidfVectorizer()
+X = vectorizer.fit_transform(data["text"])
 y = data["label"]
 
-# 🔹 Convert text → numbers
-vectorizer = TfidfVectorizer()
-X_vector = vectorizer.fit_transform(X)
-
-# 🔹 Train model
-model = MultinomialNB()
-model.fit(X_vector, y)
+# 🔹 Train model with balanced class weights
+model = MultinomialNB(class_prior=[0.5, 0.5])  # Equal priors to fix imbalance
+model.fit(X, y)
 
 @app.route("/", methods=["GET", "POST"])
 def home():
@@ -27,16 +42,13 @@ def home():
     if request.method == "POST":
         text = request.form["speech_text"]
 
-        # 🔹 Transform input text
         text_vector = vectorizer.transform([text])
-
-        # 🔹 Prediction
         prediction = model.predict(text_vector)[0]
 
-        if prediction == "spam":
+        if prediction == "fraud":
             result = "⚠️ Spam / Fraud Call Detected"
         else:
-            result = "✅ Safe Call"
+            result = "✅ normal"
 
     return render_template("index.html", result=result)
 
